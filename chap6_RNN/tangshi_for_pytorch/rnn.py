@@ -33,50 +33,50 @@ class word_embedding(nn.Module):
 
 
 class RNN_model(nn.Module):
-    def __init__(self, batch_sz ,vocab_len ,word_embedding,embedding_dim, lstm_hidden_dim):
+    def __init__(self, batch_sz ,vocab_len ,word_embedding,embedding_dim, lstm_hidden_dim, device):
         super(RNN_model,self).__init__()
 
+        self.device = device
         self.word_embedding_lookup = word_embedding
         self.batch_size = batch_sz
         self.vocab_length = vocab_len
         self.word_embedding_dim = embedding_dim
         self.lstm_dim = lstm_hidden_dim
         #########################################
-        # here you need to define the "self.rnn_lstm"  the input size is "embedding_dim" and the output size is "lstm_hidden_dim"
-        # the lstm should have two layers, and the  input and output tensors are provided as (batch, seq, feature)
-        # ???
-
-
+        self.rnn_lstm = nn.RNN(embedding_dim,lstm_hidden_dim,num_layers=2,batch_first=True,dropout=0.3)
 
         ##########################################
-        self.fc = nn.Linear(lstm_hidden_dim, vocab_len )
+        self.fc = nn.Linear(lstm_hidden_dim, vocab_len)
         self.apply(weights_init) # call the weights initial function.
 
-        self.softmax = nn.LogSoftmax() # the activation function.
-        # self.tanh = nn.Tanh()
-    def forward(self,sentence,is_test = False):
-        batch_input = self.word_embedding_lookup(sentence).view(1,-1,self.word_embedding_dim)
-        # print(batch_input.size()) # print the size of the input
+    def forward(self,sentence, h_0=None, is_test = False):
+        batch_size = sentence.shape[0] 
+
+        sentence = sentence.to(device=self.device)
+        
+        batch_input = self.word_embedding_lookup(sentence).view(batch_size,-1,self.word_embedding_dim) # (batch_size, sentence_length,embedding_dim)
+        
         ################################################
-        # here you need to put the "batch_input"  input the self.lstm which is defined before.
-        # the hidden output should be named as output, the initial hidden state and cell state set to zero.
-        # ???
-
-
-
+        if h_0 is None:
+            h_0 = Variable(torch.zeros(2, batch_size, self.lstm_dim)).to(device=self.device)
+        output, h_n = self.rnn_lstm(batch_input, h_0)
 
         ################################################
-        out = output.contiguous().view(-1,self.lstm_dim)
+        if batch_size == 1:
+            out = output.contiguous().view(-1,self.lstm_dim)
+        else:
+            out = output.contiguous().view(batch_size, -1 ,self.lstm_dim)
 
         out =  F.relu(self.fc(out))
 
-        out = self.softmax(out)
-
         if is_test:
-            prediction = out[ -1, : ].view(1,-1)
+            prediction = out[-1,:].view(1,-1)
             output = prediction
         else:
-           output = out
-        # print(out)
-        return output
+            output = out
 
+        return output, h_n
+    
+    def predict(self,sentence_ids):
+        out,_ = self(sentence_ids, is_test=True)
+        return F.log_softmax(out,dim=1)
